@@ -1,0 +1,2228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prometheus Target Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* ── Reset & Variables ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+:root {
+ --bg: #0d0f10;
+ --bg2: #141618;
+ --bg3: #1c1f21;
+ --bg4: #242729;
+ --border: #2a2e31;
+ --border2: #3a3f43;
+ --text: #c8cdd1;
+ --text2: #7a8590;
+ --text3: #4a5560;
+ --green: #39d98a;
+ --green-dim: #1a4a35;
+ --amber: #f5a623;
+ --amber-dim: #3d2b08;
+ --red: #f05252;
+ --red-dim: #3d1515;
+ --blue: #58a6ff;
+ --blue-dim: #0d2040;
+ --purple: #bc8cff;
+ --white: #e8ecf0;
+ --mono: 'IBM Plex Mono', monospace;
+ --sans: 'IBM Plex Sans', sans-serif;
+ --radius: 6px;
+ --radius-lg: 10px;
+}
+ 
+/* ── Light mode ────────────────────────────────────────────────── */
+body.light {
+ --bg: #f5f6f7;
+ --bg2: #ffffff;
+ --bg3: #eef0f2;
+ --bg4: #e4e7ea;
+ --border: #d0d5da;
+ --border2: #b0b8c1;
+ --text: #1c2128;
+ --text2: #4a5568;
+ --text3: #8a98a8;
+ --green: #1a7f4e;
+ --green-dim: #d4f0e4;
+ --amber: #b45309;
+ --amber-dim: #fef3c7;
+ --red: #c0392b;
+ --red-dim: #fde8e8;
+ --blue: #1d6fa4;
+ --blue-dim: #dbeafe;
+ --purple: #6d28d9;
+ --white: #1c2128;
+}
+ 
+/* Transición suave al cambiar de tema */
+body, header, main, .modal, .toast,
+.table-wrap, .stats-strip, .filters,
+.stat-card, .group-detail-cell,
+.drop-zone, .preview-wrap, .log-entry {
+ transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+ 
+html { font-size: 14px; }
+body {
+ font-family: var(--sans);
+ background: var(--bg);
+ color: var(--text);
+ min-height: 100vh;
+ line-height: 1.5;
+}
+ 
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+ 
+/* ── Layout ────────────────────────────────────────────────────── */
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+ 
+/* ── Header ────────────────────────────────────────────────────── */
+header {
+ display: flex;
+ align-items: center;
+ gap: 20px;
+ padding: 0 24px;
+ height: 52px;
+ background: var(--bg2);
+ border-bottom: 1px solid var(--border);
+ position: sticky; top: 0; z-index: 100;
+}
+.logo {
+ display: flex; align-items: center; gap: 10px;
+ font-family: var(--mono);
+ font-size: 13px; font-weight: 600;
+ color: var(--white);
+ letter-spacing: -0.02em;
+}
+.logo-icon {
+ width: 26px; height: 26px;
+ background: var(--green);
+ border-radius: 4px;
+ display: flex; align-items: center; justify-content: center;
+}
+.logo-icon svg { width: 14px; height: 14px; }
+.logo span { color: var(--green); }
+ 
+.header-nav { display: flex; gap: 2px; margin-left: 8px; }
+.nav-btn {
+ padding: 5px 12px;
+ font-family: var(--sans); font-size: 13px;
+ background: none; border: none;
+ color: var(--text2); cursor: pointer;
+ border-radius: var(--radius);
+ transition: background 0.15s, color 0.15s;
+}
+.nav-btn:hover { background: var(--bg3); color: var(--text); }
+.nav-btn.active { background: var(--bg3); color: var(--white); }
+ 
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.api-status {
+ display: flex; align-items: center; gap: 6px;
+ font-family: var(--mono); font-size: 11px; color: var(--text3);
+}
+.status-dot {
+ width: 7px; height: 7px; border-radius: 50%;
+ background: var(--border2);
+ transition: background 0.3s;
+}
+.status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.err { background: var(--red); }
+ 
+/* ── Main ──────────────────────────────────────────────────────── */
+main { flex: 1; padding: 20px 24px; max-width: 1600px; width: 100%; }
+ 
+/* ── Pages ─────────────────────────────────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+ 
+/* ── Page header ───────────────────────────────────────────────── */
+.page-header {
+ display: flex; align-items: center; justify-content: space-between;
+ margin-bottom: 18px;
+}
+.page-title {
+ font-family: var(--mono);
+ font-size: 16px; font-weight: 600;
+ color: var(--white);
+ letter-spacing: -0.02em;
+}
+.page-subtitle { font-size: 12px; color: var(--text3); margin-top: 3px; }
+ 
+/* ── Filters bar ───────────────────────────────────────────────── */
+.filters {
+ display: flex; gap: 8px; align-items: center;
+ margin-bottom: 14px; flex-wrap: wrap;
+}
+.filter-select, .filter-input {
+ background: var(--bg3);
+ border: 1px solid var(--border);
+ color: var(--text);
+ font-family: var(--sans); font-size: 12px;
+ padding: 6px 10px;
+ border-radius: var(--radius);
+ outline: none;
+ transition: border-color 0.15s;
+ height: 32px;
+}
+.filter-select:focus, .filter-input:focus { border-color: var(--border2); }
+.filter-input { min-width: 200px; }
+.filter-label { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+.btn-clear {
+ background: none; border: 1px solid var(--border);
+ color: var(--text2); font-size: 11px; font-family: var(--mono);
+ padding: 5px 10px; border-radius: var(--radius); cursor: pointer;
+ transition: all 0.15s; height: 32px;
+}
+.btn-clear:hover { border-color: var(--border2); color: var(--text); }
+ 
+/* ── Buttons ───────────────────────────────────────────────────── */
+.btn {
+ display: inline-flex; align-items: center; gap: 6px;
+ padding: 7px 14px; border-radius: var(--radius);
+ font-family: var(--sans); font-size: 13px; font-weight: 500;
+ cursor: pointer; border: none; outline: none;
+ transition: all 0.15s; text-decoration: none;
+ white-space: nowrap;
+}
+.btn-primary { background: var(--green); color: #0a1f14; }
+.btn-primary:hover { background: #4de899; }
+.btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { border-color: var(--border2); background: var(--bg4); }
+.btn-danger { background: var(--red-dim); color: var(--red); border: 1px solid #5a1f1f; }
+.btn-danger:hover { background: #5a1f1f; }
+.btn-ghost { background: none; color: var(--text2); border: 1px solid transparent; }
+.btn-ghost:hover { background: var(--bg3); color: var(--text); border-color: var(--border); }
+.btn-sm { padding: 4px 8px; font-size: 11px; }
+.btn-icon { padding: 5px; width: 28px; height: 28px; justify-content: center; }
+ 
+/* ── Table ─────────────────────────────────────────────────────── */
+.table-wrap {
+ border: 1px solid var(--border);
+ border-radius: var(--radius-lg);
+ overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: var(--bg3); border-bottom: 1px solid var(--border); }
+th {
+ padding: 9px 14px;
+ font-family: var(--mono); font-size: 10px; font-weight: 600;
+ text-transform: uppercase; letter-spacing: 0.08em;
+ color: var(--text3); text-align: left; white-space: nowrap;
+}
+tbody tr {
+ border-bottom: 1px solid var(--border);
+ transition: background 0.1s;
+ cursor: pointer;
+}
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--bg3); }
+td { padding: 10px 14px; font-size: 13px; vertical-align: middle; }
+td.mono { font-family: var(--mono); font-size: 12px; }
+ 
+/* ── Badges ────────────────────────────────────────────────────── */
+.badge {
+ display: inline-flex; align-items: center;
+ padding: 2px 8px; border-radius: 4px;
+ font-family: var(--mono); font-size: 10px; font-weight: 600;
+ letter-spacing: 0.05em; white-space: nowrap;
+}
+.badge-env-des { background: var(--bg4); color: var(--text2); border: 1px solid var(--border2); }
+.badge-env-pre { background: var(--amber-dim); color: var(--amber); border: 1px solid #5a3f10; }
+.badge-env-cont { background: var(--blue-dim); color: var(--blue); border: 1px solid #1a3a60; }
+.badge-env-pro { background: var(--green-dim); color: var(--green); border: 1px solid #1a5c3a; }
+.badge-os-linux { background: #1a2a3a; color: #7ab8f0; border: 1px solid #2a4a6a; }
+.badge-os-windows { background: #1a1a3a; color: #8a8af0; border: 1px solid #2a2a6a; }
+.badge-dc { background: var(--bg4); color: var(--text2); border: 1px solid var(--border); }
+.badge-count { background: var(--bg4); color: var(--text2); border: 1px solid var(--border); min-width: 28px; justify-content: center; }
+ 
+/* ── Expanded group detail ─────────────────────────────────────── */
+.group-detail-row { display: none; }
+.group-detail-row.open { display: table-row; }
+.group-detail-cell {
+ padding: 0 !important;
+ background: var(--bg2);
+ border-bottom: 1px solid var(--border);
+}
+.group-detail-inner { padding: 16px 20px; }
+.detail-header {
+ display: flex; align-items: center; justify-content: space-between;
+ margin-bottom: 12px;
+}
+.detail-title { font-family: var(--mono); font-size: 11px; color: var(--text3); letter-spacing: 0.06em; text-transform: uppercase; }
+.targets-grid {
+ display: flex; flex-wrap: wrap; gap: 6px;
+ margin-bottom: 14px;
+}
+.target-chip {
+ display: flex; align-items: center; gap: 6px;
+ background: var(--bg3); border: 1px solid var(--border);
+ border-radius: var(--radius);
+ padding: 4px 8px 4px 10px;
+ font-family: var(--mono); font-size: 11px; color: var(--text);
+ transition: border-color 0.15s;
+}
+.target-chip:hover { border-color: var(--border2); }
+.target-chip .chip-del {
+ background: none; border: none; cursor: pointer;
+ color: var(--text3); font-size: 14px; line-height: 1;
+ padding: 0 2px;
+ transition: color 0.15s;
+}
+.target-chip .chip-del:hover { color: var(--red); }
+.add-target-row {
+ display: flex; gap: 8px; align-items: center; margin-top: 8px;
+}
+.add-target-input {
+ background: var(--bg3); border: 1px solid var(--border);
+ color: var(--text); font-family: var(--mono); font-size: 12px;
+ padding: 5px 10px; border-radius: var(--radius); outline: none;
+ transition: border-color 0.15s; min-width: 220px;
+}
+.add-target-input:focus { border-color: var(--green); }
+.add-target-input::placeholder { color: var(--text3); }
+ 
+/* ── Labels detail ─────────────────────────────────────────────── */
+.labels-row {
+ display: flex; gap: 20px; flex-wrap: wrap;
+ padding: 10px 14px;
+ background: var(--bg2); border: 1px solid var(--border);
+ border-radius: var(--radius); font-size: 12px;
+}
+.label-pair { display: flex; gap: 6px; align-items: center; }
+.label-key { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.label-val { font-family: var(--mono); font-size: 11px; color: var(--text); }
+ 
+/* ── Stats strip ───────────────────────────────────────────────── */
+.stats-strip {
+ display: flex; gap: 1px;
+ margin-bottom: 18px;
+ border: 1px solid var(--border);
+ border-radius: var(--radius-lg);
+ overflow: hidden;
+}
+.stat-card {
+ flex: 1; padding: 14px 18px;
+ background: var(--bg2);
+ border-right: 1px solid var(--border);
+}
+.stat-card:last-child { border-right: none; }
+.stat-val {
+ font-family: var(--mono); font-size: 22px; font-weight: 600;
+ color: var(--white); line-height: 1;
+}
+.stat-val.green { color: var(--green); }
+.stat-val.amber { color: var(--amber); }
+.stat-label { font-size: 11px; color: var(--text3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+ 
+/* ── Modal ─────────────────────────────────────────────────────── */
+.modal-overlay {
+ position: fixed; inset: 0; z-index: 500;
+ background: rgba(0,0,0,0.7);
+ display: flex; align-items: center; justify-content: center;
+ opacity: 0; pointer-events: none;
+ transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+ background: var(--bg2);
+ border: 1px solid var(--border2);
+ border-radius: var(--radius-lg);
+ width: 560px; max-width: 95vw;
+ max-height: 90vh; overflow-y: auto;
+ transform: translateY(12px);
+ transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-header {
+ padding: 18px 20px 14px;
+ border-bottom: 1px solid var(--border);
+ display: flex; align-items: center; justify-content: space-between;
+}
+.modal-title { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--white); }
+.modal-close {
+ background: none; border: none; color: var(--text3);
+ font-size: 18px; cursor: pointer; line-height: 1;
+ transition: color 0.15s; padding: 2px 6px;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px; }
+.modal-footer {
+ padding: 14px 20px;
+ border-top: 1px solid var(--border);
+ display: flex; gap: 8px; justify-content: flex-end;
+}
+ 
+/* ── Form ──────────────────────────────────────────────────────── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-full { grid-column: 1 / -1; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 11px; font-family: var(--mono); color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+.form-input, .form-select, .form-textarea {
+ background: var(--bg3); border: 1px solid var(--border);
+ color: var(--text); font-family: var(--sans); font-size: 13px;
+ padding: 7px 10px; border-radius: var(--radius); outline: none;
+ transition: border-color 0.15s;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--green); }
+.form-input::placeholder { color: var(--text3); }
+.form-select option { background: var(--bg3); }
+.form-textarea { resize: vertical; min-height: 80px; font-family: var(--mono); font-size: 12px; }
+.form-hint { font-size: 11px; color: var(--text3); }
+.form-divider { grid-column: 1/-1; border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+ 
+/* ── Toast ─────────────────────────────────────────────────────── */
+.toast-container {
+ position: fixed; bottom: 24px; right: 24px; z-index: 600;
+ display: flex; flex-direction: column; gap: 8px;
+ pointer-events: none;
+}
+.toast {
+ padding: 10px 16px; border-radius: var(--radius);
+ font-family: var(--mono); font-size: 12px;
+ display: flex; align-items: center; gap: 8px;
+ animation: toast-in 0.2s ease-out;
+ pointer-events: all;
+ max-width: 360px;
+}
+.toast-ok { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+.toast-err { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); }
+.toast-info { background: var(--bg4); border: 1px solid var(--border2); color: var(--text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+ 
+/* ── Log page ──────────────────────────────────────────────────── */
+.log-list { display: flex; flex-direction: column; gap: 1px; }
+.log-entry {
+ display: grid; grid-template-columns: 140px 70px 160px 1fr;
+ gap: 0; padding: 8px 14px;
+ background: var(--bg2); border: 1px solid var(--border);
+ border-radius: 0; font-size: 12px;
+ transition: background 0.1s;
+}
+.log-list .log-entry:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.log-list .log-entry:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.log-list .log-entry:only-child { border-radius: var(--radius); }
+.log-entry:hover { background: var(--bg3); }
+.log-ts { font-family: var(--mono); color: var(--text3); font-size: 11px; }
+.log-action { font-family: var(--mono); font-weight: 600; font-size: 11px; }
+.log-action.CREATE { color: var(--green); }
+.log-action.UPDATE { color: var(--amber); }
+.log-action.DELETE { color: var(--red); }
+.log-action.IMPORT { color: var(--blue); }
+.log-action.EXPORT { color: var(--purple);}
+.log-file { font-family: var(--mono); color: var(--text2); font-size: 11px; }
+.log-detail { color: var(--text2); }
+ 
+th { cursor: default; }
+th[onclick] { cursor: pointer; }
+th[onclick]:hover { color: var(--text); background: var(--bg4); }
+ 
+.group-detail-inner table tbody tr {
+ border-bottom: 1px solid var(--border);
+ transition: background 0.1s;
+}
+.group-detail-inner table tbody tr:last-child { border-bottom: none; }
+.group-detail-inner table tbody tr:hover { background: var(--bg4); }
+ 
+/* ── Import Excel ──────────────────────────────────────────────── */
+.drop-zone {
+ border: 2px dashed var(--border2);
+ border-radius: var(--radius-lg);
+ padding: 32px 20px;
+ text-align: center;
+ cursor: pointer;
+ transition: border-color 0.2s, background 0.2s;
+ background: var(--bg3);
+}
+.drop-zone:hover, .drop-zone.drag-over {
+ border-color: var(--green);
+ background: var(--green-dim);
+}
+.drop-zone input[type=file] { display: none; }
+.drop-zone-icon { font-size: 28px; opacity: 0.5; margin-bottom: 8px; }
+.drop-zone-text { font-size: 13px; color: var(--text2); }
+.drop-zone-hint { font-size: 11px; color: var(--text3); margin-top: 4px; font-family: var(--mono); }
+ 
+.preview-wrap {
+ max-height: 320px; overflow-y: auto;
+ border: 1px solid var(--border);
+ border-radius: var(--radius);
+ margin-top: 14px;
+}
+.preview-wrap table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.preview-wrap thead tr { background: var(--bg3); position: sticky; top: 0; z-index: 1; }
+.preview-wrap th { padding: 6px 10px; font-family: var(--mono); font-size: 10px; color: var(--text3);
+ text-transform: uppercase; letter-spacing: .06em; text-align: left; white-space: nowrap; }
+.preview-wrap td { padding: 5px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); color: var(--text2); white-space: nowrap; }
+.preview-wrap tr:last-child td { border-bottom: none; }
+.preview-wrap tr.row-new td { color: var(--text); }
+.preview-wrap tr.row-new td:first-child { color: var(--green); }
+.preview-wrap tr.row-dup td { opacity: 0.4; }
+.preview-wrap tr.row-dup td:first-child { color: var(--text3); }
+.import-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; font-family: var(--mono); }
+.legend-new { color: var(--green); }
+.legend-dup { color: var(--text3); }
+ 
+/* ── Empty state ───────────────────────────────────────────────── */
+.empty-state {
+ text-align: center; padding: 60px 20px;
+ color: var(--text3); font-family: var(--mono); font-size: 12px;
+}
+.empty-state .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+ 
+/* ── Loading ───────────────────────────────────────────────────── */
+.loading { display: flex; align-items: center; gap: 8px; color: var(--text3); font-family: var(--mono); font-size: 12px; padding: 40px 20px; }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+ 
+/* ── Confirm dialog ────────────────────────────────────────────── */
+.confirm-overlay {
+ position: fixed; inset: 0; z-index: 600;
+ background: rgba(0,0,0,0.8);
+ display: flex; align-items: center; justify-content: center;
+ opacity: 0; pointer-events: none; transition: opacity 0.15s;
+}
+.confirm-overlay.open { opacity: 1; pointer-events: all; }
+.confirm-box {
+ background: var(--bg2); border: 1px solid var(--border2);
+ border-radius: var(--radius-lg);
+ padding: 24px; max-width: 360px; width: 90%;
+ text-align: center;
+}
+.confirm-box h3 { font-family: var(--mono); font-size: 13px; color: var(--white); margin-bottom: 8px; }
+.confirm-box p { font-size: 12px; color: var(--text2); margin-bottom: 20px; line-height: 1.6; }
+.confirm-actions { display: flex; gap: 8px; justify-content: center; }
+ 
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+ .form-grid { grid-template-columns: 1fr; }
+ .log-entry { grid-template-columns: 1fr 1fr; }
+ .stats-strip { flex-wrap: wrap; }
+ .stat-card { min-width: 120px; }
+}
+</style>
+</head>
+<body>
+ 
+<div class="app">
+ 
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<header>
+ <div class="logo">
+ <div class="logo-icon">
+ <svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+ <circle cx="7" cy="7" r="5.5" stroke="#0a1f14" stroke-width="1.5"/>
+ <path d="M7 3.5v4l2.5 1.5" stroke="#0a1f14" stroke-width="1.5" stroke-linecap="round"/>
+ </svg>
+ </div>
+ prom<span>targets</span>
+ </div>
+ 
+ <nav class="header-nav">
+ <button class="nav-btn active" onclick="showPage('groups')">Target Groups</button>
+ <button class="nav-btn" onclick="showPage('log')">Sync Log</button>
+ </nav>
+ 
+ <div class="header-right">
+ <div class="api-status">
+ <div class="status-dot" id="status-dot"></div>
+ <span id="status-text">comprobando...</span>
+ </div>
+ <button class="btn btn-ghost btn-sm btn-icon" id="theme-toggle" title="Cambiar tema" onclick="toggleTheme()" style="font-size:15px">☀</button>
+ <button class="btn btn-secondary btn-sm" onclick="openAddTargetModal()">+ Nuevo target</button>
+ <button class="btn btn-secondary btn-sm" onclick="openImportModal()">↑ Importar Excel</button>
+ <button class="btn btn-secondary btn-sm" onclick="openImportJsonModal()">↑ Importar JSON</button>
+ <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ Nuevo grupo</button>
+ </div>
+</header>
+ 
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<main>
+ 
+ <!-- ── PAGE: GROUPS ─────────────────────────────────────── -->
+ <div class="page active" id="page-groups">
+ 
+ <div class="page-header">
+ <div>
+ <div class="page-title">// target_groups</div>
+ <div class="page-subtitle" id="groups-subtitle">Cargando...</div>
+ </div>
+ <div style="display:flex;gap:8px">
+ <button class="btn btn-ghost btn-sm" onclick="loadGroups()">↺ Recargar</button>
+ </div>
+ </div>
+ 
+ <!-- Stats -->
+ <div class="stats-strip" id="stats-strip">
+ <div class="stat-card"><div class="stat-val green" id="stat-groups">—</div><div class="stat-label">grupos</div></div>
+ <div class="stat-card"><div class="stat-val" id="stat-targets">—</div><div class="stat-label">targets</div></div>
+ <div class="stat-card"><div class="stat-val" id="stat-files">—</div><div class="stat-label">ficheros JSON</div></div>
+ <div class="stat-card"><div class="stat-val amber" id="stat-envs">—</div><div class="stat-label">entornos</div></div>
+ </div>
+ 
+ <!-- Filters -->
+ <div class="filters">
+ <span class="filter-label">FILTRAR:</span>
+ <input class="filter-input" id="f-search" placeholder="hostname / jobname / exporter…" oninput="applyFilters()">
+ <select class="filter-select" id="f-project-filter" onchange="applyProjectFilter()"><option value="">Proyecto Git</option></select>
+ <select class="filter-select" id="f-env" onchange="applyFilters()"><option value="">Entorno</option></select>
+ <select class="filter-select" id="f-exp" onchange="applyFilters()"><option value="">Exporter</option></select>
+ <select class="filter-select" id="f-dc" onchange="applyFilters()"><option value="">DC</option></select>
+ <select class="filter-select" id="f-os" onchange="applyFilters()"><option value="">OS</option></select>
+ <select class="filter-select" id="f-file" onchange="applyFilters();toggleDeleteFileBtn()"><option value="">Fichero JSON</option></select>
+ <button class="btn-clear" title="Eliminar fichero JSON seleccionado" onclick="confirmDeleteFile()" id="btn-delete-file" style="display:none;border-color:#5a1f1f;color:var(--red)">🗑 Eliminar fichero</button>
+ <button class="btn-clear" onclick="clearFilters()">✕ Limpiar</button>
+ </div>
+ 
+ <!-- Table -->
+ <div class="table-wrap" id="groups-table-wrap">
+ <div class="loading"><div class="spinner"></div>Cargando target groups…</div>
+ </div>
+ </div>
+ 
+ <!-- ── PAGE: LOG ────────────────────────────────────────── -->
+ <div class="page" id="page-log">
+ <div class="page-header">
+ <div>
+ <div class="page-title">// sync_log</div>
+ <div class="page-subtitle">Registro de cambios en los ficheros JSON de Prometheus</div>
+ </div>
+ <button class="btn btn-ghost btn-sm" onclick="loadLog()">↺ Recargar</button>
+ </div>
+ <div id="log-container">
+ <div class="loading"><div class="spinner"></div>Cargando log…</div>
+ </div>
+ </div>
+ 
+</main>
+</div>
+ 
+<!-- ── Modal: Importar Excel ─────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-import" onclick="if(event.target===this)closeImportModal()">
+ <div class="modal" style="width:700px;max-width:96vw">
+ <div class="modal-header">
+ <span class="modal-title">// importar_excel</span>
+ <button class="modal-close" onclick="closeImportModal()">×</button>
+ </div>
+ <div class="modal-body">
+ 
+ <!-- Paso 1: Seleccionar fichero -->
+ <div id="import-step-1">
+ <div style="margin-bottom:12px">
+ <label class="form-label">Proyecto Git</label>
+ <select class="form-select" id="import-project" style="width:100%;margin-top:5px" onchange="filterImportFiles()">
+ <option value="">Todos</option>
+ </select>
+ </div>
+ <div style="margin-bottom:12px">
+ <label class="form-label">Fichero JSON destino</label>
+ <select class="form-select" id="import-target-file" style="width:100%;margin-top:5px" onchange="toggleNewFileInput()"></select>
+ <div id="new-file-wrap" style="display:none;margin-top:8px">
+ <input class="form-input" id="import-new-filename" placeholder="nuevo_fichero.json" style="width:100%">
+ <span class="form-hint" style="margin-top:4px">El fichero se creará automáticamente al importar.</span>
+ </div>
+ <span class="form-hint" style="margin-top:4px">Los nuevos grupos se añadirán a este fichero JSON.</span>
+ </div>
+ <div class="drop-zone" id="drop-zone" onclick="document.getElementById('excel-input').click()"
+ ondragover="event.preventDefault();this.classList.add('drag-over')"
+ ondragleave="this.classList.remove('drag-over')"
+ ondrop="handleDrop(event)">
+ <input type="file" id="excel-input" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event)">
+ <div class="drop-zone-icon">📊</div>
+ <div class="drop-zone-text">Arrastra aquí tu fichero Excel o haz clic para seleccionarlo</div>
+ <div class="drop-zone-hint">.xlsx · .xls · .csv</div>
+ </div>
+ <div style="margin-top:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius)">
+ <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Columnas esperadas en el Excel</div>
+ <div style="display:flex;flex-wrap:wrap;gap:6px">
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">TARGET</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">JOBNAME</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">PROJECT</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">ENVIRONMENT</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">DATACENTER</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">OS</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--green);color:var(--green)">EXPORTER</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3)">ALERTING</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3)">INSTANCE</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3)">MODULE</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3)">PORT</span>
+ <span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg4);border:1px solid var(--blue);color:var(--blue)">MI_LABEL_EXTRA</span>
+ </div>
+ <div style="font-size:11px;color:var(--text3);margin-top:8px">Verde = obligatorio · Gris = opcional · Azul = cualquier columna extra se añade como label al JSON · TARGET debe incluir el puerto si aplica (ej: host:9100).</div>
+ </div>
+ </div>
+ 
+ <!-- Paso 2: Preview -->
+ <div id="import-step-2" style="display:none">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+ <span style="font-family:var(--mono);font-size:12px;color:var(--white)" id="import-summary"></span>
+ <button class="btn btn-ghost btn-sm" onclick="resetImport()">← Cambiar fichero</button>
+ </div>
+ <div class="preview-wrap" id="preview-table-wrap"></div>
+ <div class="import-legend">
+ <span class="legend-new">● Nuevo (se importará)</span>
+ <span class="legend-dup">● Ya existe (se omitirá)</span>
+ </div>
+ </div>
+ 
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeImportModal()">Cancelar</button>
+ <button class="btn btn-primary" id="import-confirm-btn" onclick="confirmImport()" style="display:none">
+ Importar nuevos
+ </button>
+ </div>
+ </div>
+</div>
+ 
+<!-- ── Modal: Importar JSON ──────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-import-json" onclick="if(event.target===this)closeImportJsonModal()">
+ <div class="modal" style="width:700px;max-width:96vw">
+ <div class="modal-header">
+ <span class="modal-title">// importar_json</span>
+ <button class="modal-close" onclick="closeImportJsonModal()">×</button>
+ </div>
+ <div class="modal-body">
+ 
+ <!-- Paso 1: Seleccionar fichero -->
+ <div id="json-import-step-1">
+ <div style="margin-bottom:12px">
+ <label class="form-label">Proyecto Git</label>
+ <select class="form-select" id="json-import-project" style="width:100%;margin-top:5px" onchange="filterJsonImportFiles()">
+ <option value="">Todos</option>
+ </select>
+ </div>
+ <div style="margin-bottom:12px">
+ <label class="form-label">Fichero JSON destino</label>
+ <select class="form-select" id="json-import-target-file" style="width:100%;margin-top:5px" onchange="toggleJsonNewFileInput()"></select>
+ <div id="json-new-file-wrap" style="display:none;margin-top:8px">
+ <input class="form-input" id="json-import-new-filename" placeholder="nuevo_fichero.json" style="width:100%">
+ <span class="form-hint" style="margin-top:4px">El fichero se creará automáticamente al importar.</span>
+ </div>
+ <span class="form-hint" style="margin-top:4px">Los nuevos grupos se añadirán a este fichero JSON.</span>
+ </div>
+ <div class="drop-zone" id="json-drop-zone"
+ onclick="document.getElementById('json-file-input').click()"
+ ondragover="event.preventDefault();this.classList.add('drag-over')"
+ ondragleave="this.classList.remove('drag-over')"
+ ondrop="handleJsonDrop(event)">
+ <input type="file" id="json-file-input" accept=".json" onchange="handleJsonFileSelect(event)">
+ <div class="drop-zone-icon">{ }</div>
+ <div class="drop-zone-text">Arrastra aquí tu fichero JSON de targets o haz clic para seleccionarlo</div>
+ <div class="drop-zone-hint">.json — formato file_sd_config de Prometheus</div>
+ </div>
+ </div>
+ 
+ <!-- Paso 2: Preview -->
+ <div id="json-import-step-2" style="display:none">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+ <span style="font-family:var(--mono);font-size:12px;color:var(--white)" id="json-import-summary"></span>
+ <button class="btn btn-ghost btn-sm" onclick="resetJsonImport()">← Cambiar fichero</button>
+ </div>
+ <div class="preview-wrap" id="json-preview-table-wrap"></div>
+ <div class="import-legend">
+ <span class="legend-new">● Nuevo (se importará)</span>
+ <span class="legend-dup">● Ya existe (se omitirá)</span>
+ </div>
+ </div>
+ 
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeImportJsonModal()">Cancelar</button>
+ <button class="btn btn-primary" id="json-import-confirm-btn" onclick="confirmJsonImport()" style="display:none">
+ Importar nuevos
+ </button>
+ </div>
+ </div>
+</div>
+ 
+<!-- ── Modal: Añadir target rápido ───────────────────────────────── -->
+<div class="modal-overlay" id="modal-add-target" onclick="if(event.target===this)closeAddTargetModal()">
+ <div class="modal" style="width:420px">
+ <div class="modal-header">
+ <span class="modal-title">// nuevo_target</span>
+ <button class="modal-close" onclick="closeAddTargetModal()">×</button>
+ </div>
+ <div class="modal-body">
+ <div style="display:flex;flex-direction:column;gap:14px">
+ <div class="form-group">
+ <label class="form-label">Proyecto Git</label>
+ <select class="form-select" id="at-project" style="width:100%" onchange="filterAtFiles()">
+ <option value="">Todos</option>
+ </select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Fichero JSON</label>
+ <select class="form-select" id="at-file" style="width:100%" onchange="filterAtGroups()"></select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Sistema operativo</label>
+ <select class="form-select" id="at-os" style="width:100%" onchange="filterAtGroups()">
+ <option value="">Todos</option>
+ </select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Grupo destino</label>
+ <select class="form-select" id="at-group" style="width:100%" onchange="updateAtGroupHint()"></select>
+ <span class="form-hint" id="at-group-hint" style="margin-top:4px;font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Direcciones <span style="color:var(--text3)">(una por línea: hostname:puerto)</span></label>
+ <textarea class="form-textarea" id="at-addresses" placeholder="nuevohost01:9100&#10;nuevohost02:9100" style="min-height:100px"></textarea>
+ </div>
+ </div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeAddTargetModal()">Cancelar</button>
+ <button class="btn btn-primary" id="at-save-btn" onclick="saveNewTarget()">Añadir targets</button>
+ </div>
+ </div>
+</div>
+ 
+<!-- ── Modal: Crear / Editar grupo ────────────────────────────── -->
+<div class="modal-overlay" id="modal-group" onclick="handleOverlayClick(event)">
+ <div class="modal">
+ <div class="modal-header">
+ <span class="modal-title" id="modal-title">Nuevo target group</span>
+ <button class="modal-close" onclick="closeModal()">×</button>
+ </div>
+ <div class="modal-body">
+ <div class="form-grid">
+ <div class="form-group">
+ <label class="form-label">Fichero JSON</label>
+ <input class="form-input" id="f-source_file" placeholder="targets.json">
+ </div>
+ <div class="form-group">
+ <label class="form-label">Job name</label>
+ <input class="form-input" id="f-jobname" placeholder="Node Exporter PRO">
+ </div>
+ 
+ <div class="form-group">
+ <label class="form-label">Proyecto</label>
+ <select class="form-select" id="f-project"></select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Entorno</label>
+ <select class="form-select" id="f-environment"></select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Datacenter</label>
+ <select class="form-select" id="f-datacenter"></select>
+ </div>
+ <div class="form-group">
+ <label class="form-label">Sistema operativo</label>
+ <select class="form-select" id="f-os-modal"></select>
+ </div>
+ <div class="form-group form-full">
+ <label class="form-label">Exporter</label>
+ <select class="form-select" id="f-exporter"></select>
+ </div>
+ 
+ <hr class="form-divider">
+ 
+ <div class="form-group form-full">
+ <label class="form-label">Targets <span style="color:var(--text3)">(uno por línea: hostname:puerto)</span></label>
+ <textarea class="form-textarea" id="f-targets" placeholder="ahpmtp01:9100&#10;ahpmtp02:9100"></textarea>
+ </div>
+ 
+ <hr class="form-divider">
+ 
+ <div class="form-group">
+ <label class="form-label">Instance <span style="color:var(--text3)">(opcional)</span></label>
+ <input class="form-input" id="f-instance" placeholder="ahsnmpp01:9115">
+ </div>
+ <div class="form-group">
+ <label class="form-label">Module <span style="color:var(--text3)">(opcional)</span></label>
+ <input class="form-input" id="f-module" placeholder="icmp_test">
+ </div>
+ <div class="form-group">
+ <label class="form-label">Port label <span style="color:var(--text3)">(opcional)</span></label>
+ <input class="form-input" id="f-port_label" placeholder="TCP / HTTP / ICMP">
+ </div>
+ <div class="form-group" style="justify-content:flex-end;padding-top:18px">
+ <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+ <input type="checkbox" id="f-alerting" checked style="accent-color:var(--green)">
+ <span class="form-label" style="text-transform:none;margin:0">ALERTING activo</span>
+ </label>
+ </div>
+ </div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+ <button class="btn btn-primary" id="modal-save-btn" onclick="saveGroup()">Crear grupo</button>
+ </div>
+ </div>
+</div>
+ 
+<!-- ── Confirm dialog ─────────────────────────────────────────── -->
+<div class="confirm-overlay" id="confirm-overlay">
+ <div class="confirm-box">
+ <h3 id="confirm-title">¿Eliminar grupo?</h3>
+ <p id="confirm-msg">Esta acción eliminará el grupo y todos sus targets. El fichero JSON se regenerará sin este grupo.</p>
+ <div class="confirm-actions">
+ <button class="btn btn-secondary" onclick="closeConfirm()">Cancelar</button>
+ <button class="btn btn-danger" id="confirm-ok-btn">Eliminar</button>
+ </div>
+ </div>
+</div>
+ 
+<!-- ── Toasts ─────────────────────────────────────────────────── -->
+<div class="toast-container" id="toasts"></div>
+ 
+<script>
+// ── Config ──────────────────────────────────────────────────────
+const API = (window.API_BASE || '');
+ 
+// ── State ────────────────────────────────────────────────────────
+let allGroups = [];
+let catalogs = {};
+let gitProjects = {}; // { ONPREM: { branch, files }, CLOUD: { ... } }
+let editingGroupId = null;
+let expandedRows = new Set();
+let sortState = { col: null, dir: 1 };
+let hostnameCache = {}; // groupId → array de hostnames (string[])
+ 
+// ── Tema ──────────────────────────────────────────────────────────
+function toggleTheme() {
+ const isLight = document.body.classList.toggle('light');
+ document.getElementById('theme-toggle').textContent = isLight ? '🌙' : '☀';
+ try { localStorage.setItem('ptm-theme', isLight ? 'light' : 'dark'); } catch(e) {}
+}
+ 
+function initTheme() {
+ let saved = 'dark';
+ try { saved = localStorage.getItem('ptm-theme') || 'dark'; } catch(e) {}
+ if (saved === 'light') {
+ document.body.classList.add('light');
+ document.getElementById('theme-toggle').textContent = '🌙';
+ }
+}
+ 
+// ── Init ─────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+ initTheme();
+ checkHealth();
+ await loadGitProjects();
+ await loadCatalogs();
+ await loadGroups();
+ setInterval(checkHealth, 30000);
+});
+ 
+function _populateProjectSelect(selId) {
+ const sel = document.getElementById(selId);
+ if (!sel) return;
+ const opts = Object.keys(gitProjects).map(name =>
+ `<option value="${esc(name)}">${esc(name)}</option>`
+ ).join('');
+ sel.innerHTML = '<option value="">Todos</option>' + opts;
+}
+ 
+function _filesForProject(projectName) {
+ const all = [...new Set(allGroups.map(g => g.source_file))].sort();
+ if (!projectName || !gitProjects[projectName]) return all;
+ const projectFiles = new Set(gitProjects[projectName].files || []);
+ return all.filter(f => projectFiles.has(f));
+}
+ 
+function _rebuildFileSelect(selId, files, withNew = true) {
+ const sel = document.getElementById(selId);
+ if (!sel) return;
+ const newOpt = withNew ? `<option value="__new__">+ Crear fichero nuevo…</option>` : '';
+ if (!files.length) {
+ sel.innerHTML = newOpt;
+ } else {
+ sel.innerHTML = files.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('') + newOpt;
+ }
+}
+ 
+// ── Filtros de fichero por proyecto en cada modal ─────────────────
+function filterAtFiles() {
+ const project = document.getElementById('at-project').value;
+ const files = _filesForProject(project);
+ _rebuildFileSelect('at-file', files, false);
+ filterAtGroups();
+}
+ 
+function filterImportFiles() {
+ const project = document.getElementById('import-project').value;
+ const files = _filesForProject(project);
+ _rebuildFileSelect('import-target-file', files, true);
+ // Mostrar campo nuevo si no hay ficheros
+ const sel = document.getElementById('import-target-file');
+ const isNew = !files.length || sel.value === '__new__';
+ document.getElementById('new-file-wrap').style.display = isNew ? '' : 'none';
+}
+ 
+function filterJsonImportFiles() {
+ const project = document.getElementById('json-import-project').value;
+ const files = _filesForProject(project);
+ _rebuildFileSelect('json-import-target-file', files, true);
+ const sel = document.getElementById('json-import-target-file');
+ const isNew = !files.length || sel.value === '__new__';
+ document.getElementById('json-new-file-wrap').style.display = isNew ? '' : 'none';
+}
+ 
+// ── Git projects ──────────────────────────────────────────────────
+async function loadGitProjects() {
+ try {
+ const d = await apiFetch('/api/git_projects');
+ gitProjects = d.data || {};
+ const sel = document.getElementById('f-project-filter');
+ const opts = Object.keys(gitProjects).map(name =>
+ `<option value="${esc(name)}">${esc(name)}</option>`
+ ).join('');
+ sel.innerHTML = '<option value="">Proyecto Git</option>' + opts;
+ } catch { /* silencioso si no hay proyectos configurados */ }
+}
+ 
+function applyProjectFilter() {
+ const project = document.getElementById('f-project-filter').value;
+ const fileSel = document.getElementById('f-file');
+ 
+ if (project && gitProjects[project]) {
+ // Filtrar el desplegable de ficheros a solo los del proyecto
+ const projectFiles = new Set(gitProjects[project].files);
+ const allFiles = [...new Set(allGroups.map(g => g.source_file))].sort();
+ const first = fileSel.options[0].outerHTML;
+ fileSel.innerHTML = first + allFiles
+ .filter(f => projectFiles.has(f))
+ .map(f => `<option value="${esc(f)}">${esc(f)}</option>`)
+ .join('');
+ } else {
+ // Restaurar todos los ficheros
+ const allFiles = [...new Set(allGroups.map(g => g.source_file))].sort();
+ const first = fileSel.options[0].outerHTML;
+ fileSel.innerHTML = first + allFiles
+ .map(f => `<option value="${esc(f)}">${esc(f)}</option>`)
+ .join('');
+ }
+ 
+ // Resetear fichero seleccionado y aplicar filtros
+ fileSel.selectedIndex = 0;
+ applyFilters();
+}
+ 
+// ── Init (original, reemplazado arriba) ──────────────────────────
+ 
+// ── Navigation ───────────────────────────────────────────────────
+function showPage(name) {
+ document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+ document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+ document.getElementById('page-' + name).classList.add('active');
+ event.target.classList.add('active');
+ if (name === 'log') loadLog();
+}
+ 
+// ── Health check ─────────────────────────────────────────────────
+async function checkHealth() {
+ try {
+ const r = await fetch(API + '/health');
+ const d = await r.json();
+ const ok = d.ok && d.data.db;
+ document.getElementById('status-dot').className = 'status-dot ' + (ok ? 'ok' : 'err');
+ document.getElementById('status-text').textContent = ok ? 'API online' : 'BD offline';
+ } catch {
+ document.getElementById('status-dot').className = 'status-dot err';
+ document.getElementById('status-text').textContent = 'API offline';
+ }
+}
+ 
+// ── Catalogs ─────────────────────────────────────────────────────
+async function loadCatalogs() {
+ const resources = ['environments','exporters','datacenters','os','projects'];
+ await Promise.all(resources.map(async r => {
+ try {
+ const d = await apiFetch('/api/catalogs/' + r);
+ catalogs[r] = d.data || [];
+ } catch { catalogs[r] = []; }
+ }));
+ 
+ // Poblar selects del modal
+ populateSelect('f-project', catalogs.projects, 'name', 'name');
+ populateSelect('f-environment', catalogs.environments, 'name', 'name');
+ populateSelect('f-datacenter', catalogs.datacenters, 'code', 'code');
+ populateSelect('f-os-modal', catalogs['os'], 'name', 'name');
+ populateSelect('f-exporter', catalogs.exporters, 'name', 'name');
+ 
+ // Poblar filtros
+ populateFilterSelect('f-env', catalogs.environments, 'name', 'name');
+ populateFilterSelect('f-exp', catalogs.exporters, 'name', 'name');
+ populateFilterSelect('f-dc', catalogs.datacenters, 'code', 'code');
+ populateFilterSelect('f-os', catalogs['os'], 'name', 'name');
+}
+ 
+function populateSelect(id, items, valField, labelField) {
+ const sel = document.getElementById(id);
+ if (!sel) return;
+ sel.innerHTML = items.map(i =>
+ `<option value="${esc(i[valField])}">${esc(i[labelField])}</option>`
+ ).join('');
+}
+ 
+function populateFilterSelect(id, items, valField, labelField) {
+ const sel = document.getElementById(id);
+ if (!sel) return;
+ const first = sel.options[0].outerHTML;
+ sel.innerHTML = first + items.map(i =>
+ `<option value="${esc(i[valField])}">${esc(i[labelField])}</option>`
+ ).join('');
+}
+ 
+// ── Load groups ───────────────────────────────────────────────────
+async function loadGroups() {
+ document.getElementById('groups-table-wrap').innerHTML =
+ `<div class="loading"><div class="spinner"></div>Cargando target groups…</div>`;
+ try {
+ const d = await apiFetch('/api/groups');
+ allGroups = d.data || [];
+ expandedRows.clear();
+ hostnameCache = {};
+ 
+ // Poblar filtro de ficheros
+ const files = [...new Set(allGroups.map(g => g.source_file))].sort();
+ const fFile = document.getElementById('f-file');
+ const firstOpt = fFile.options[0].outerHTML;
+ fFile.innerHTML = firstOpt + files.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+ 
+ updateStats(allGroups);
+ renderGroups(allGroups);
+ } catch(e) {
+ document.getElementById('groups-table-wrap').innerHTML =
+ `<div class="empty-state"><div class="empty-icon">⚠</div>Error cargando datos: ${esc(e.message)}</div>`;
+ }
+}
+ 
+function updateStats(groups) {
+ const totalTargets = groups.reduce((s, g) => s + (g.target_count || 0), 0);
+ const files = new Set(groups.map(g => g.source_file)).size;
+ const envs = new Set(groups.map(g => g.environment)).size;
+ document.getElementById('stat-groups').textContent = groups.length;
+ document.getElementById('stat-targets').textContent = totalTargets;
+ document.getElementById('stat-files').textContent = files;
+ document.getElementById('stat-envs').textContent = envs;
+ document.getElementById('groups-subtitle').textContent =
+ `${groups.length} grupos · ${totalTargets} targets · ${files} fichero${files!==1?'s':''}`;
+}
+ 
+function getFileProject(sourceFile) {
+ for (const [name, proj] of Object.entries(gitProjects)) {
+ if ((proj.files || []).includes(sourceFile)) return name;
+ }
+ return null;
+}
+ 
+// ── Sort ──────────────────────────────────────────────────────────
+function sortGroups(groups) {
+ if (!sortState.col) return groups;
+ return [...groups].sort((a, b) => {
+ let va = sortVal(a, sortState.col);
+ let vb = sortVal(b, sortState.col);
+ if (va < vb) return -1 * sortState.dir;
+ if (va > vb) return 1 * sortState.dir;
+ return 0;
+ });
+}
+function sortVal(g, col) {
+ switch(col) {
+ case 'hostname': return firstHost(g).toLowerCase();
+ case 'source_file': return g.source_file.toLowerCase();
+ case 'jobname': return g.jobname.toLowerCase();
+ case 'environment': return (g.env_order || 0);
+ case 'datacenter': return g.datacenter.toLowerCase();
+ case 'os': return g.os.toLowerCase();
+ case 'exporter': return g.exporter.toLowerCase();
+ case 'target_count':return g.target_count || 0;
+ default: return '';
+ }
+}
+function firstHost(g) {
+ // La API devuelve target_count pero no los hosts en el listado; usamos jobname como proxy
+ // El hostname real se carga en el detalle. Para sort usamos jobname prefix.
+ return g.jobname || '';
+}
+function toggleSort(col) {
+ if (sortState.col === col) {
+ sortState.dir *= -1;
+ } else {
+ sortState.col = col;
+ sortState.dir = 1;
+ }
+ applyFilters();
+}
+function sortIcon(col) {
+ if (sortState.col !== col) return '<span style="opacity:0.25;margin-left:4px">⇅</span>';
+ return sortState.dir === 1
+ ? '<span style="color:var(--green);margin-left:4px">↑</span>'
+ : '<span style="color:var(--green);margin-left:4px">↓</span>';
+}
+function thClick(col, label) {
+ return `<th style="cursor:pointer;user-select:none" onclick="toggleSort('${col}')">${label}${sortIcon(col)}</th>`;
+}
+ 
+// ── Render groups table ───────────────────────────────────────────
+function renderGroups(groups) {
+ if (!groups.length) {
+ document.getElementById('groups-table-wrap').innerHTML =
+ `<div class="empty-state"><div class="empty-icon">◎</div>No hay grupos que coincidan con los filtros.</div>`;
+ return;
+ }
+ 
+ const sorted = sortGroups(groups);
+ 
+ const rows = sorted.map(g => {
+ const envClass = {DES:'badge-env-des',PRE:'badge-env-pre',CONT:'badge-env-cont',PRO:'badge-env-pro'}[g.environment] || 'badge-env-des';
+ const osClass = g.os === 'Windows' ? 'badge-os-windows' : 'badge-os-linux';
+ // Primer host: intentamos extraerlo del jobname como referencia hasta que se expanda el detalle
+ const hostHint = g.jobname.replace(/ (PRO|PRE|DES|CONT)$/i,'').toLowerCase().replace(/\s+/g,'-');
+ return `
+ <tr onclick="toggleDetail(${g.id})" data-id="${g.id}">
+ <td class="mono" style="color:var(--text2);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+ title="${esc(g.source_file)}">${esc(g.source_file)}${getFileProject(g.source_file) ? ` <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue);opacity:.8">${esc(getFileProject(g.source_file))}</span>` : ''}</td>
+ <td class="mono" style="color:var(--text2);font-size:11px" id="host-col-${g.id}">—</td>
+ <td><span style="color:var(--white);font-family:var(--mono);font-size:12px">${esc(g.jobname)}</span></td>
+ <td><span class="badge ${envClass}">${esc(g.environment)}</span></td>
+ <td><span class="badge badge-dc">${esc(g.datacenter)}</span></td>
+ <td><span class="badge ${osClass}">${esc(g.os)}</span></td>
+ <td style="color:var(--text2);font-size:12px">${esc(g.exporter)}</td>
+ <td><span class="badge badge-count">&#9776; ${g.target_count}</span></td>
+ <td onclick="event.stopPropagation()" style="white-space:nowrap">
+ <button class="btn btn-ghost btn-sm btn-icon" title="Editar grupo" onclick="openEditModal(${g.id})">✎</button>
+ <button class="btn btn-ghost btn-sm btn-icon" title="Eliminar grupo" style="color:var(--text3)" onclick="confirmDeleteGroup(${g.id}, '${esc(g.jobname)}')">✕</button>
+ </td>
+ </tr>
+ <tr class="group-detail-row" id="detail-${g.id}">
+ <td class="group-detail-cell" colspan="9">
+ <div class="group-detail-inner" id="detail-inner-${g.id}">
+ <div class="loading"><div class="spinner"></div>Cargando…</div>
+ </div>
+ </td>
+ </tr>`;
+ }).join('');
+ 
+ document.getElementById('groups-table-wrap').innerHTML = `
+ <table>
+ <thead>
+ <tr>
+ ${thClick('source_file','Fichero')}
+ ${thClick('hostname','Hostname')}
+ ${thClick('jobname','Job name')}
+ ${thClick('environment','Entorno')}
+ ${thClick('datacenter','DC')}
+ ${thClick('os','OS')}
+ ${thClick('exporter','Exporter')}
+ ${thClick('target_count','Hosts')}
+ <th></th>
+ </tr>
+ </thead>
+ <tbody>${rows}</tbody>
+ </table>`;
+ 
+ // Cargar el primer hostname de cada grupo en background (sin bloquear el render)
+ sorted.forEach(g => loadFirstHost(g.id));
+}
+ 
+// Carga el primer host real desde la API y lo pinta en la celda
+async function loadFirstHost(groupId) {
+ try {
+ const d = await apiFetch('/api/groups/' + groupId);
+ const targets = d.data?.targets || [];
+ // Guardar todos los hostnames en cache para el filtro de búsqueda
+ hostnameCache[groupId] = targets.map(t =>
+ (t.hostname || t.address.split(':')[0]).toLowerCase()
+ );
+ // Actualizar celda visual
+ const cell = document.getElementById('host-col-' + groupId);
+ if (cell) {
+ if (!targets.length) { cell.textContent = '—'; }
+ else {
+ const first = targets[0].hostname || targets[0].address.split(':')[0];
+ const extra = targets.length > 1 ? `<span style="color:var(--text3)"> +${targets.length-1}</span>` : '';
+ cell.innerHTML = esc(first) + extra;
+ }
+ }
+ // Si hay una búsqueda activa que pueda afectar, re-filtrar
+ // pero SOLO si este grupo no estaba ya visible (evita re-render que destruye filas expandidas)
+ const search = document.getElementById('f-search')?.value.trim().toLowerCase();
+ if (search) {
+ const hostnames = hostnameCache[groupId] || [];
+ const matchesSearch = hostnames.some(h => h.includes(search));
+ // Solo re-renderizar si el grupo ahora matchea por hostname y antes no estaba en tabla
+ const rowExists = document.querySelector(`tr[data-id="${groupId}"]`);
+ if (matchesSearch && !rowExists) applyFilters();
+ }
+ } catch { /* silencioso */ }
+}
+ 
+// ── Toggle detail row ─────────────────────────────────────────────
+async function toggleDetail(id) {
+ const row = document.getElementById('detail-' + id);
+ if (!row) return;
+ 
+ if (expandedRows.has(id)) {
+ row.classList.remove('open');
+ expandedRows.delete(id);
+ return;
+ }
+ 
+ row.classList.add('open');
+ expandedRows.add(id);
+ 
+ // Cargar detalle completo
+ try {
+ const d = await apiFetch('/api/groups/' + id);
+ renderDetailRow(id, d.data);
+ } catch(e) {
+ document.getElementById('detail-inner-' + id).innerHTML =
+ `<div style="color:var(--red);font-family:var(--mono);font-size:12px">Error: ${esc(e.message)}</div>`;
+ }
+}
+ 
+function renderDetailRow(id, group) {
+ const targets = group.targets || [];
+ 
+ const optLabels = [
+ group.project ? `<span class="label-pair"><span class="label-key">project</span><span class="label-val">${esc(group.project)}</span></span>` : '',
+ group.os ? `<span class="label-pair"><span class="label-key">os</span><span class="label-val">${esc(group.os)}</span></span>` : '',
+ group.exporter ? `<span class="label-pair"><span class="label-key">exporter</span><span class="label-val">${esc(group.exporter)}</span></span>` : '',
+ group.module ? `<span class="label-pair"><span class="label-key">module</span><span class="label-val">${esc(group.module)}</span></span>` : '',
+ group.port_label ? `<span class="label-pair"><span class="label-key">PORT</span><span class="label-val">${esc(group.port_label)}</span></span>` : '',
+ ].filter(Boolean).join('');
+ 
+ const rows = targets.length
+ ? targets.map((t, i) => `
+ <tr>
+ <td class="mono" style="color:var(--text);font-size:12px;padding:7px 14px">${esc(t.hostname || t.address.split(':')[0])}</td>
+ <td class="mono" style="color:var(--text3);font-size:12px;padding:7px 14px">${t.port ?? '—'}</td>
+ <td class="mono" style="color:var(--text3);font-size:12px;padding:7px 14px">${esc(t.protocol || '—')}</td>
+ <td class="mono" style="color:var(--text2);font-size:11px;padding:7px 14px">${esc(t.address)}</td>
+ <td style="padding:7px 14px;text-align:right" onclick="event.stopPropagation()">
+ <button class="btn btn-ghost btn-sm btn-icon" title="Eliminar target" style="color:var(--text3)"
+ onclick="confirmDeleteTarget(${t.id},'${esc(t.address)}',${id})">✕</button>
+ </td>
+ </tr>`).join('')
+ : `<tr><td colspan="5" style="padding:14px;color:var(--text3);font-family:var(--mono);font-size:12px">Sin targets</td></tr>`;
+ 
+ document.getElementById('detail-inner-' + id).innerHTML = `
+ <div class="detail-header">
+ <span class="detail-title">TARGETS (${targets.length})${optLabels ? ' &nbsp;·&nbsp; ' + optLabels : ''}</span>
+ <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openAddTargets(${id})">+ Añadir targets</button>
+ </div>
+ <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:8px">
+ <table style="width:100%;border-collapse:collapse">
+ <thead>
+ <tr style="background:var(--bg3);border-bottom:1px solid var(--border)">
+ <th style="padding:6px 14px;font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;text-align:left">Hostname</th>
+ <th style="padding:6px 14px;font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;text-align:left">Puerto</th>
+ <th style="padding:6px 14px;font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;text-align:left">Protocolo</th>
+ <th style="padding:6px 14px;font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;text-align:left">Dirección completa</th>
+ <th></th>
+ </tr>
+ </thead>
+ <tbody>${rows}</tbody>
+ </table>
+ </div>`;
+}
+ 
+// ── Filters ───────────────────────────────────────────────────────
+function applyFilters() {
+ const search = document.getElementById('f-search').value.trim().toLowerCase();
+ const project = document.getElementById('f-project-filter').value;
+ const env = document.getElementById('f-env').value;
+ const exp = document.getElementById('f-exp').value;
+ const dc = document.getElementById('f-dc').value;
+ const os = document.getElementById('f-os').value;
+ const file = document.getElementById('f-file').value;
+ 
+ const filtered = allGroups.filter(g => {
+ if (project && getFileProject(g.source_file) !== project) return false;
+ if (env && g.environment !== env) return false;
+ if (exp && g.exporter !== exp) return false;
+ if (dc && g.datacenter !== dc) return false;
+ if (os && g.os !== os) return false;
+ if (file && g.source_file !== file) return false;
+ if (search) {
+ const inJobname = g.jobname.toLowerCase().includes(search);
+ const inFile = g.source_file.toLowerCase().includes(search);
+ const inExporter = g.exporter.toLowerCase().includes(search);
+ const inHostnames = (hostnameCache[g.id] || []).some(h => h.includes(search));
+ if (!inJobname && !inFile && !inExporter && !inHostnames) return false;
+ }
+ return true;
+ });
+ 
+ updateStats(filtered);
+ renderGroups(filtered);
+}
+ 
+function clearFilters() {
+ ['f-search','f-env','f-exp','f-dc','f-os','f-file','f-project-filter'].forEach(id => {
+ const el = document.getElementById(id);
+ if (el.tagName === 'SELECT') el.selectedIndex = 0;
+ else el.value = '';
+ });
+ document.getElementById('btn-delete-file').style.display = 'none';
+ updateStats(allGroups);
+ renderGroups(allGroups);
+}
+ 
+// ── Modal: Nuevo target rápido ───────────────────────────────────────
+function openAddTargetModal() {
+ _populateProjectSelect('at-project');
+ document.getElementById('at-project').value = '';
+ 
+ // Poblar ficheros (todos por defecto)
+ const files = _filesForProject('');
+ _rebuildFileSelect('at-file', files, false);
+ 
+ // Poblar OS únicos
+ const osList = [...new Set(allGroups.map(g => g.os))].sort();
+ const osSel = document.getElementById('at-os');
+ osSel.innerHTML = '<option value="">Todos</option>' +
+ osList.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+ 
+ filterAtGroups();
+ document.getElementById('at-addresses').value = '';
+ document.getElementById('modal-add-target').classList.add('open');
+ setTimeout(() => document.getElementById('at-addresses').focus(), 100);
+}
+ 
+function filterAtGroups() {
+ const selectedFile = document.getElementById('at-file').value;
+ const selectedOs = document.getElementById('at-os').value;
+ 
+ const filtered = allGroups.filter(g => {
+ if (g.source_file !== selectedFile) return false;
+ if (selectedOs && g.os !== selectedOs) return false;
+ return true;
+ });
+ 
+ const groupSel = document.getElementById('at-group');
+ groupSel.innerHTML = filtered.length
+ ? filtered.map(g =>
+ `<option value="${g.id}" data-file="${esc(g.source_file)}" data-env="${esc(g.environment)}" data-exp="${esc(g.exporter)}">
+ [${esc(g.environment)}] ${esc(g.jobname)}
+ </option>`
+ ).join('')
+ : `<option value="">— Sin grupos para este filtro —</option>`;
+ 
+ updateAtGroupHint();
+}
+ 
+function updateAtGroupHint() {
+ const sel = document.getElementById('at-group');
+ const opt = sel.options[sel.selectedIndex];
+ if (!opt) return;
+ document.getElementById('at-group-hint').textContent =
+ `${opt.dataset.file} · ${opt.dataset.exp}`;
+}
+ 
+function closeAddTargetModal() {
+ document.getElementById('modal-add-target').classList.remove('open');
+}
+ 
+async function assignFileProject(sourceFile, project) {
+ if (!project || !sourceFile) return;
+ try {
+ await apiFetch('/api/git_projects/assign', 'POST', { source_file: sourceFile, project });
+ // Recargar proyectos para que la etiqueta aparezca
+ await loadGitProjects();
+ } catch(e) {
+ console.warn('No se pudo asignar proyecto:', e.message);
+ }
+}
+ 
+async function saveNewTarget() {
+ const groupId = document.getElementById('at-group').value;
+ const raw = document.getElementById('at-addresses').value
+ .split('\n').map(s => s.trim()).filter(Boolean);
+ if (!groupId) { toast('err', 'Selecciona un grupo destino'); return; }
+ if (!raw.length) { toast('err', 'Introduce al menos una dirección'); return; }
+ 
+ const btn = document.getElementById('at-save-btn');
+ btn.disabled = true; btn.textContent = 'Añadiendo…';
+ try {
+ await apiFetch('/api/groups/' + groupId + '/targets', 'POST', { targets: raw });
+ // Asignar proyecto si se seleccionó uno
+ const project = document.getElementById('at-project').value;
+ const sourceFile = document.getElementById('at-file').value;
+ if (project && sourceFile) await assignFileProject(sourceFile, project);
+ toast('ok', `${raw.length} target(s) añadido(s) — JSON regenerado`);
+ closeAddTargetModal();
+ await loadGroups();
+ } catch(e) {
+ toast('err', e.message);
+ } finally {
+ btn.disabled = false; btn.textContent = 'Añadir targets';
+ }
+}
+ 
+// ── Modal: Crear grupo ────────────────────────────────────────────
+function openCreateModal() {
+ editingGroupId = null;
+ document.getElementById('modal-title').textContent = '// nuevo_grupo';
+ document.getElementById('modal-save-btn').textContent = 'Crear grupo';
+ clearForm();
+ document.getElementById('modal-group').classList.add('open');
+}
+ 
+async function openEditModal(groupId) {
+ editingGroupId = groupId;
+ document.getElementById('modal-title').textContent = '// editar_grupo #' + groupId;
+ document.getElementById('modal-save-btn').textContent = 'Guardar cambios';
+ 
+ try {
+ const d = await apiFetch('/api/groups/' + groupId);
+ const g = d.data;
+ document.getElementById('f-source_file').value = g.source_file || '';
+ document.getElementById('f-jobname').value = g.jobname || '';
+ document.getElementById('f-instance').value = g.instance || '';
+ document.getElementById('f-module').value = g.module || '';
+ document.getElementById('f-port_label').value = g.port_label || '';
+ document.getElementById('f-alerting').checked = !!g.alerting;
+ setSelectVal('f-project', g.project);
+ setSelectVal('f-environment', g.environment);
+ setSelectVal('f-datacenter', g.datacenter);
+ setSelectVal('f-os-modal', g.os);
+ setSelectVal('f-exporter', g.exporter);
+ document.getElementById('f-targets').value =
+ (g.targets || []).map(t => t.address).join('\n');
+ } catch(e) { toast('err', 'Error cargando grupo: ' + e.message); return; }
+ 
+ document.getElementById('modal-group').classList.add('open');
+}
+ 
+async function saveGroup() {
+ const source_file = v('f-source_file').trim();
+ const jobname = v('f-jobname').trim();
+ if (!source_file || !jobname) { toast('err', 'Fichero JSON y job name son obligatorios'); return; }
+ 
+ const rawTargets = v('f-targets').split('\n').map(s=>s.trim()).filter(Boolean);
+ 
+ const body = {
+ source_file,
+ jobname,
+ project: v('f-project'),
+ environment: v('f-environment'),
+ datacenter: v('f-datacenter'),
+ os: v('f-os-modal'),
+ exporter: v('f-exporter'),
+ targets: rawTargets,
+ instance: v('f-instance') || null,
+ module: v('f-module') || null,
+ port_label: v('f-port_label') || null,
+ alerting: document.getElementById('f-alerting').checked,
+ };
+ 
+ const btn = document.getElementById('modal-save-btn');
+ btn.disabled = true; btn.textContent = 'Guardando…';
+ 
+ try {
+ if (editingGroupId) {
+ await apiFetch('/api/groups/' + editingGroupId, 'PUT', body);
+ toast('ok', 'Grupo actualizado correctamente');
+ } else {
+ if (!rawTargets.length) { toast('err', 'Añade al menos un target'); btn.disabled=false; btn.textContent='Crear grupo'; return; }
+ await apiFetch('/api/groups', 'POST', body);
+ toast('ok', 'Grupo creado — JSON regenerado');
+ }
+ closeModal();
+ await loadGroups();
+ } catch(e) {
+ toast('err', e.message);
+ } finally {
+ btn.disabled = false;
+ btn.textContent = editingGroupId ? 'Guardar cambios' : 'Crear grupo';
+ }
+}
+ 
+// ── Add targets inline ────────────────────────────────────────────
+function openAddTargets(groupId) {
+ const inner = document.getElementById('detail-inner-' + groupId);
+ // Crear input inline si no existe
+ if (inner.querySelector('.add-target-row')) return;
+ const row = document.createElement('div');
+ row.className = 'add-target-row';
+ row.innerHTML = `
+ <input class="add-target-input" placeholder="nuevohost:9100" id="add-input-${groupId}">
+ <button class="btn btn-primary btn-sm" onclick="submitAddTargets(${groupId})">Añadir</button>
+ <button class="btn btn-ghost btn-sm" onclick="this.parentElement.remove()">Cancelar</button>`;
+ inner.appendChild(row);
+ setTimeout(() => document.getElementById('add-input-' + groupId)?.focus(), 50);
+}
+ 
+async function submitAddTargets(groupId) {
+ const input = document.getElementById('add-input-' + groupId);
+ const raw = input.value.split(',').map(s => s.trim()).filter(Boolean);
+ if (!raw.length) { toast('err', 'Introduce al menos una dirección'); return; }
+ 
+ try {
+ await apiFetch('/api/groups/' + groupId + '/targets', 'POST', { targets: raw });
+ toast('ok', `${raw.length} target(s) añadido(s)`);
+ // Reabrir detalle actualizado
+ expandedRows.delete(groupId);
+ await loadGroups();
+ toggleDetail(groupId);
+ } catch(e) { toast('err', e.message); }
+}
+ 
+// ── Delete group ──────────────────────────────────────────────────
+function confirmDeleteGroup(id, name) {
+ document.getElementById('confirm-title').textContent = '¿Eliminar grupo?';
+ document.getElementById('confirm-msg').textContent =
+ `Se eliminará "${name}" y todos sus targets. El fichero JSON se regenerará.`;
+ document.getElementById('confirm-ok-btn').onclick = async () => {
+ closeConfirm();
+ try {
+ await apiFetch('/api/groups/' + id, 'DELETE');
+ toast('ok', 'Grupo eliminado — JSON regenerado');
+ await loadGroups();
+ } catch(e) { toast('err', e.message); }
+ };
+ document.getElementById('confirm-overlay').classList.add('open');
+}
+ 
+// ── Delete target ─────────────────────────────────────────────────
+function confirmDeleteTarget(targetId, address, groupId) {
+ document.getElementById('confirm-title').textContent = '¿Eliminar target?';
+ document.getElementById('confirm-msg').textContent =
+ `Se eliminará "${address}" del grupo. El fichero JSON se regenerará.`;
+ document.getElementById('confirm-ok-btn').onclick = async () => {
+ closeConfirm();
+ try {
+ await apiFetch('/api/targets/' + targetId, 'DELETE');
+ toast('ok', 'Target eliminado');
+ expandedRows.delete(groupId);
+ await loadGroups();
+ toggleDetail(groupId);
+ } catch(e) { toast('err', e.message); }
+ };
+ document.getElementById('confirm-overlay').classList.add('open');
+}
+ 
+// ── Sync log ──────────────────────────────────────────────────────
+async function loadLog() {
+ document.getElementById('log-container').innerHTML =
+ `<div class="loading"><div class="spinner"></div>Cargando log…</div>`;
+ try {
+ const d = await apiFetch('/api/sync_log?limit=100');
+ const entries = d.data || [];
+ if (!entries.length) {
+ document.getElementById('log-container').innerHTML =
+ `<div class="empty-state"><div class="empty-icon">◎</div>Sin entradas en el log.</div>`;
+ return;
+ }
+ document.getElementById('log-container').innerHTML = `
+ <div class="log-list">
+ ${entries.map(e => `
+ <div class="log-entry">
+ <span class="log-ts">${formatDate(e.created_at)}</span>
+ <span class="log-action ${e.action}">${e.action}</span>
+ <span class="log-file">${esc(e.source_file)}</span>
+ <span class="log-detail">${esc(e.detail || '—')}</span>
+ </div>`).join('')}
+ </div>`;
+ } catch(e) {
+ document.getElementById('log-container').innerHTML =
+ `<div class="empty-state"><div class="empty-icon">⚠</div>Error: ${esc(e.message)}</div>`;
+ }
+}
+ 
+// ── Helpers UI ────────────────────────────────────────────────────
+function closeModal() {
+ document.getElementById('modal-group').classList.remove('open');
+ editingGroupId = null;
+}
+function closeConfirm() {
+ document.getElementById('confirm-overlay').classList.remove('open');
+}
+function handleOverlayClick(e) {
+ if (e.target === e.currentTarget) closeModal();
+}
+function clearForm() {
+ ['f-source_file','f-jobname','f-instance','f-module','f-port_label','f-targets']
+ .forEach(id => { document.getElementById(id).value = ''; });
+ document.getElementById('f-alerting').checked = true;
+}
+function setSelectVal(id, val) {
+ const sel = document.getElementById(id);
+ for (let i = 0; i < sel.options.length; i++) {
+ if (sel.options[i].value === val) { sel.selectedIndex = i; return; }
+ }
+}
+function v(id) { return document.getElementById(id).value; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function formatDate(iso) {
+ if (!iso) return '—';
+ const d = new Date(iso);
+ return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' +
+ d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+ 
+// ── Toast ─────────────────────────────────────────────────────────
+function toast(type, msg) {
+ const container = document.getElementById('toasts');
+ const t = document.createElement('div');
+ t.className = `toast toast-${type}`;
+ t.textContent = (type === 'ok' ? '✓ ' : type === 'err' ? '✕ ' : '') + msg;
+ container.appendChild(t);
+ setTimeout(() => t.remove(), 4000);
+}
+ 
+// ── API fetch wrapper ─────────────────────────────────────────────
+async function apiFetch(path, method='GET', body=null) {
+ const opts = {
+ method,
+ headers: { 'Content-Type': 'application/json' },
+ };
+ if (body) opts.body = JSON.stringify(body);
+ const r = await fetch(API + path, opts);
+ const d = await r.json();
+ if (!d.ok) throw new Error(d.error || 'Error desconocido');
+ return d;
+}
+ 
+function toggleDeleteFileBtn() {
+ const file = document.getElementById('f-file').value;
+ document.getElementById('btn-delete-file').style.display = file ? '' : 'none';
+}
+ 
+function confirmDeleteFile() {
+ const file = document.getElementById('f-file').value;
+ if (!file) return;
+ const count = allGroups.filter(g => g.source_file === file).length;
+ document.getElementById('confirm-title').textContent = '¿Eliminar fichero completo?';
+ document.getElementById('confirm-msg').textContent =
+ `Se eliminarán todos los datos de "${file}" (${count} grupo${count !== 1 ? 's' : ''} y todos sus targets). El fichero se borrará del disco y de Git.`;
+ document.getElementById('confirm-ok-btn').onclick = async () => {
+ closeConfirm();
+ try {
+ await apiFetch('/api/files/' + encodeURIComponent(file), 'DELETE');
+ toast('ok', `Fichero "${file}" eliminado completamente`);
+ clearFilters();
+ await loadGroups();
+ } catch(e) {
+ toast('err', e.message);
+ }
+ };
+ document.getElementById('confirm-overlay').classList.add('open');
+}
+ 
+// ── Importar Excel ────────────────────────────────────────────────
+let importRows = []; // filas parseadas del Excel
+// Columnas conocidas (se excluyen de los labels extra)
+const EXCEL_COLS_REQUIRED = ['target','jobname','project','environment','datacenter','os','exporter'];
+const EXCEL_COLS_OPTIONAL = ['alerting','instance','module','port'];
+const EXCEL_COLS_KNOWN = new Set([...EXCEL_COLS_REQUIRED, ...EXCEL_COLS_OPTIONAL]);
+ 
+function openImportModal() {
+ _populateProjectSelect('import-project');
+ document.getElementById('import-project').value = '';
+ 
+ const files = _filesForProject('');
+ _rebuildFileSelect('import-target-file', files, true);
+ 
+ if (!files.length) {
+ document.getElementById('import-target-file').value = '__new__';
+ document.getElementById('new-file-wrap').style.display = '';
+ } else {
+ document.getElementById('new-file-wrap').style.display = 'none';
+ }
+ 
+ document.getElementById('import-new-filename').value = '';
+ resetImport();
+ document.getElementById('modal-import').classList.add('open');
+}
+ 
+function toggleNewFileInput() {
+ const val = document.getElementById('import-target-file').value;
+ document.getElementById('new-file-wrap').style.display = val === '__new__' ? '' : 'none';
+}
+ 
+function getImportTargetFile() {
+ const val = document.getElementById('import-target-file').value;
+ if (val === '__new__') {
+ const name = document.getElementById('import-new-filename').value.trim();
+ if (!name) { toast('err', 'Introduce el nombre del nuevo fichero JSON'); return null; }
+ return name.endsWith('.json') ? name : name + '.json';
+ }
+ return val;
+}
+ 
+function closeImportModal() {
+ document.getElementById('modal-import').classList.remove('open');
+ resetImport();
+}
+ 
+function resetImport() {
+ importRows = []; importNew = [];
+ document.getElementById('import-step-1').style.display = '';
+ document.getElementById('import-step-2').style.display = 'none';
+ document.getElementById('import-confirm-btn').style.display = 'none';
+ document.getElementById('excel-input').value = '';
+ document.getElementById('drop-zone').classList.remove('drag-over');
+}
+ 
+function handleDrop(e) {
+ e.preventDefault();
+ document.getElementById('drop-zone').classList.remove('drag-over');
+ const file = e.dataTransfer.files[0];
+ if (file) processExcelFile(file);
+}
+ 
+function handleFileSelect(e) {
+ const file = e.target.files[0];
+ if (file) processExcelFile(file);
+}
+ 
+function processExcelFile(file) {
+ const reader = new FileReader();
+ reader.onload = function(e) {
+ try {
+ const data = new Uint8Array(e.target.result);
+ const wb = XLSX.read(data, { type: 'array' });
+ const sheet = wb.Sheets[wb.SheetNames[0]];
+ const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+ 
+ if (!raw.length) { toast('err', 'El fichero está vacío'); return; }
+ 
+ // Normalizar claves a minúsculas
+ importRows = raw.map(row => {
+ const norm = {};
+ for (const k in row) norm[k.toLowerCase().trim()] = String(row[k]).trim();
+ return norm;
+ });
+ 
+ // Validar columnas requeridas (acepta 'target' o 'address' por compatibilidad)
+ const firstRow = importRows[0];
+ // Normalizar: si hay 'address' pero no 'target', renombrar
+ if (!('target' in firstRow) && 'address' in firstRow) {
+ importRows = importRows.map(r => { const n = {...r}; n['target'] = n['address']; delete n['address']; return n; });
+ }
+ const missing = EXCEL_COLS_REQUIRED.filter(c => !(c in importRows[0]));
+ if (missing.length) {
+ toast('err', `Columnas faltantes: ${missing.join(', ')}`);
+ return;
+ }
+ 
+ showPreview();
+ } catch(err) {
+ toast('err', 'Error leyendo el fichero: ' + err.message);
+ }
+ };
+ reader.readAsArrayBuffer(file);
+}
+ 
+function getExtraLabels(row) {
+ // Devuelve un objeto con las columnas extra (no conocidas) como labels
+ const extra = {};
+ for (const k in row) {
+ if (!EXCEL_COLS_KNOWN.has(k) && row[k] !== '') {
+ extra[k.toUpperCase()] = row[k];
+ }
+ }
+ return extra;
+}
+ 
+function showPreview() {
+ const existingKeys = new Set();
+ allGroups.forEach(g => {
+ (hostnameCache[g.id] || []).forEach(h => {
+ existingKeys.add(`${h}|${g.jobname.toLowerCase()}`);
+ });
+ });
+ 
+ // Detectar columnas extra para mostrarlas en la preview
+ const extraCols = [...new Set(
+ importRows.flatMap(r => Object.keys(r).filter(k => !EXCEL_COLS_KNOWN.has(k) && r[k] !== ''))
+ )];
+ 
+ importNew = [];
+ const tableRows = importRows.map(row => {
+ const addr = row['target'] || '';
+ const jobname = (row['jobname'] || '').toLowerCase();
+ const hostKey = addr.split(':')[0].replace(/^https?:\/\//, '').toLowerCase() + '|' + jobname;
+ const isDup = existingKeys.has(hostKey);
+ if (!isDup) importNew.push(row);
+ return { row, isDup };
+ });
+ 
+ const newCount = importNew.length;
+ const dupCount = importRows.length - newCount;
+ 
+ document.getElementById('import-summary').textContent =
+ `${importRows.length} filas leídas · ${newCount} nuevas · ${dupCount} duplicadas` +
+ (extraCols.length ? ` · ${extraCols.length} label(s) extra: ${extraCols.map(c => c.toUpperCase()).join(', ')}` : '');
+ 
+ const extraHeaders = extraCols.map(c => `<th>${esc(c.toUpperCase())}</th>`).join('');
+ const thead = `<thead><tr>
+ <th>Estado</th><th>Target</th><th>Jobname</th>
+ <th>Entorno</th><th>DC</th><th>OS</th><th>Exporter</th>
+ ${extraHeaders}
+ </tr></thead>`;
+ 
+ const tbody = tableRows.map(({row, isDup}) => {
+ const extraCells = extraCols.map(c => `<td>${esc(row[c] || '')}</td>`).join('');
+ return `
+ <tr class="${isDup ? 'row-dup' : 'row-new'}">
+ <td>${isDup ? '— dup' : '+ nuevo'}</td>
+ <td>${esc(row['target'])}</td>
+ <td>${esc(row['jobname'])}</td>
+ <td>${esc(row['environment'])}</td>
+ <td>${esc(row['datacenter'])}</td>
+ <td>${esc(row['os'])}</td>
+ <td>${esc(row['exporter'])}</td>
+ ${extraCells}
+ </tr>`;
+ }).join('');
+ 
+ document.getElementById('preview-table-wrap').innerHTML =
+ `<table>${thead}<tbody>${tbody}</tbody></table>`;
+ 
+ document.getElementById('import-step-1').style.display = 'none';
+ document.getElementById('import-step-2').style.display = '';
+ 
+ if (newCount > 0) {
+ const btn = document.getElementById('import-confirm-btn');
+ btn.style.display = '';
+ btn.textContent = `Importar ${newCount} nuevo${newCount > 1 ? 's' : ''}`;
+ } else {
+ toast('info', 'Todos los targets ya existen — nada que importar');
+ }
+}
+ 
+async function confirmImport() {
+ if (!importNew.length) return;
+ 
+ const sourceFile = getImportTargetFile();
+ if (!sourceFile) return;
+ const btn = document.getElementById('import-confirm-btn');
+ btn.disabled = true; btn.textContent = 'Importando…';
+ 
+ // Agrupar por jobname+environment+datacenter+os+exporter+instance+module+port+labels_extra
+ const groupMap = new Map();
+ importNew.forEach(row => {
+ const extra = getExtraLabels(row);
+ const key = [
+ row['jobname'], row['environment'], row['datacenter'],
+ row['os'], row['exporter'],
+ row['instance'] || '', row['module'] || '', row['port'] || '',
+ JSON.stringify(extra) // labels extra forman parte de la clave del grupo
+ ].join('|');
+ 
+ if (!groupMap.has(key)) {
+ groupMap.set(key, {
+ source_file: sourceFile,
+ jobname: row['jobname'],
+ project: row['project'],
+ environment: row['environment'],
+ datacenter: row['datacenter'],
+ os: row['os'],
+ exporter: row['exporter'],
+ instance: row['instance'] || null,
+ module: row['module'] || null,
+ port_label: row['port'] || null,
+ alerting: (row['alerting'] || 'true').toLowerCase() !== 'false',
+ extra_labels: extra, // se enviarán a la API como campo adicional
+ targets: [],
+ });
+ }
+ groupMap.get(key).targets.push(row['target']);
+ });
+ 
+ const groups = [...groupMap.values()];
+ let created = 0, errors = 0;
+ 
+ for (const group of groups) {
+ try {
+ const existing = allGroups.find(g =>
+ g.source_file === sourceFile &&
+ g.jobname === group.jobname &&
+ g.environment === group.environment &&
+ g.exporter === group.exporter
+ );
+ 
+ if (existing) {
+ await apiFetch('/api/groups/' + existing.id + '/targets', 'POST',
+ { targets: group.targets });
+ } else {
+ await apiFetch('/api/groups', 'POST', group);
+ }
+ created++;
+ } catch(e) {
+ errors++;
+ console.error('Import error:', e.message);
+ }
+ }
+ 
+ btn.disabled = false;
+ // Asignar proyecto si se seleccionó uno
+ const importProject = document.getElementById('import-project').value;
+ if (importProject && sourceFile) await assignFileProject(sourceFile, importProject);
+ closeImportModal();
+ await loadGroups();
+ 
+ if (errors === 0) {
+ toast('ok', `${importNew.length} target(s) importados en ${created} grupo(s)`);
+ } else {
+ toast('err', `Importados con ${errors} error(s) — revisa la consola`);
+ }
+}
+let jsonImportGroups = []; // grupos parseados del JSON
+let jsonImportNew = []; // solo los grupos/targets nuevos
+ 
+function openImportJsonModal() {
+ _populateProjectSelect('json-import-project');
+ document.getElementById('json-import-project').value = '';
+ 
+ const files = _filesForProject('');
+ _rebuildFileSelect('json-import-target-file', files, true);
+ 
+ if (!files.length) {
+ document.getElementById('json-import-target-file').value = '__new__';
+ document.getElementById('json-new-file-wrap').style.display = '';
+ } else {
+ document.getElementById('json-new-file-wrap').style.display = 'none';
+ }
+ 
+ document.getElementById('json-import-new-filename').value = '';
+ resetJsonImport();
+ document.getElementById('modal-import-json').classList.add('open');
+}
+ 
+function closeImportJsonModal() {
+ document.getElementById('modal-import-json').classList.remove('open');
+ resetJsonImport();
+}
+ 
+function toggleJsonNewFileInput() {
+ const val = document.getElementById('json-import-target-file').value;
+ document.getElementById('json-new-file-wrap').style.display = val === '__new__' ? '' : 'none';
+}
+ 
+function getJsonImportTargetFile() {
+ const val = document.getElementById('json-import-target-file').value;
+ if (val === '__new__') {
+ const name = document.getElementById('json-import-new-filename').value.trim();
+ if (!name) { toast('err', 'Introduce el nombre del nuevo fichero JSON'); return null; }
+ return name.endsWith('.json') ? name : name + '.json';
+ }
+ return val;
+}
+ 
+function resetJsonImport() {
+ jsonImportGroups = []; jsonImportNew = [];
+ document.getElementById('json-import-step-1').style.display = '';
+ document.getElementById('json-import-step-2').style.display = 'none';
+ document.getElementById('json-import-confirm-btn').style.display = 'none';
+ document.getElementById('json-file-input').value = '';
+ document.getElementById('json-drop-zone').classList.remove('drag-over');
+}
+ 
+function handleJsonDrop(e) {
+ e.preventDefault();
+ document.getElementById('json-drop-zone').classList.remove('drag-over');
+ const file = e.dataTransfer.files[0];
+ if (file) processJsonFile(file);
+}
+ 
+function handleJsonFileSelect(e) {
+ const file = e.target.files[0];
+ if (file) processJsonFile(file);
+}
+ 
+function processJsonFile(file) {
+ const reader = new FileReader();
+ reader.onload = function(e) {
+ try {
+ const data = JSON.parse(e.target.result);
+ 
+ if (!Array.isArray(data)) {
+ toast('err', 'El fichero no tiene el formato esperado (debe ser un array)');
+ return;
+ }
+ 
+ // Validar estructura básica
+ const invalid = data.filter(entry => !entry.targets || !entry.labels);
+ if (invalid.length) {
+ toast('err', `${invalid.length} entradas sin "targets" o "labels" — verifica el formato`);
+ return;
+ }
+ 
+ jsonImportGroups = data;
+ showJsonPreview();
+ 
+ } catch(err) {
+ toast('err', 'Error leyendo el JSON: ' + err.message);
+ }
+ };
+ reader.readAsText(file);
+}
+ 
+function showJsonPreview() {
+ // Construir set de claves existentes: jobname+environment+exporter
+ const existingKeys = new Set(
+ allGroups.map(g => `${g.jobname.toLowerCase()}|${g.environment}|${g.exporter}`)
+ );
+ 
+ // Construir set de addresses existentes por grupo
+ const existingAddresses = new Set();
+ allGroups.forEach(g => {
+ (hostnameCache[g.id] || []).forEach(h => existingAddresses.add(h.toLowerCase()));
+ });
+ 
+ jsonImportNew = [];
+ const previewRows = [];
+ 
+ jsonImportGroups.forEach(entry => {
+ const labels = entry.labels || {};
+ const jobname = (labels.jobname || '').toLowerCase();
+ const env = labels.ENVIRONMENT || '';
+ const exp = labels.EXPORTER || '';
+ const groupKey = `${jobname}|${env}|${exp}`;
+ const groupExists = existingKeys.has(groupKey);
+ 
+ entry.targets.forEach(addr => {
+ const host = addr.split(':')[0].replace(/^https?:\/\//, '').toLowerCase();
+ const isDup = groupExists && existingAddresses.has(host);
+ previewRows.push({ addr, labels, isDup });
+ if (!isDup) jsonImportNew.push({ addr, labels, entry });
+ });
+ });
+ 
+ const newCount = jsonImportNew.length;
+ const dupCount = previewRows.length - newCount;
+ 
+ document.getElementById('json-import-summary').textContent =
+ `${previewRows.length} targets leídos · ${newCount} nuevos · ${dupCount} duplicados`;
+ 
+ const thead = `<thead><tr>
+ <th>Estado</th><th>Address</th><th>Jobname</th>
+ <th>Entorno</th><th>DC</th><th>OS</th><th>Exporter</th>
+ </tr></thead>`;
+ 
+ const tbody = previewRows.map(({addr, labels, isDup}) => `
+ <tr class="${isDup ? 'row-dup' : 'row-new'}">
+ <td>${isDup ? '— dup' : '+ nuevo'}</td>
+ <td>${esc(addr)}</td>
+ <td>${esc(labels.jobname || '')}</td>
+ <td>${esc(labels.ENVIRONMENT || '')}</td>
+ <td>${esc(labels.DATACENTER || '')}</td>
+ <td>${esc(labels.OS || '')}</td>
+ <td>${esc(labels.EXPORTER || '')}</td>
+ </tr>`).join('');
+ 
+ document.getElementById('json-preview-table-wrap').innerHTML =
+ `<table>${thead}<tbody>${tbody}</tbody></table>`;
+ 
+ document.getElementById('json-import-step-1').style.display = 'none';
+ document.getElementById('json-import-step-2').style.display = '';
+ 
+ if (newCount > 0) {
+ const btn = document.getElementById('json-import-confirm-btn');
+ btn.style.display = '';
+ btn.textContent = `Importar ${newCount} nuevo${newCount > 1 ? 's' : ''}`;
+ } else {
+ toast('info', 'Todos los targets ya existen — nada que importar');
+ }
+}
+ 
+async function confirmJsonImport() {
+ if (!jsonImportNew.length) return;
+ 
+ const sourceFile = getJsonImportTargetFile();
+ if (!sourceFile) return;
+ 
+ const btn = document.getElementById('json-import-confirm-btn');
+ btn.disabled = true; btn.textContent = 'Importando…';
+ 
+ // Agrupar targets nuevos por su entry original (mismo bloque de labels)
+ const groupMap = new Map();
+ jsonImportNew.forEach(({ addr, labels, entry }) => {
+ // Usar el bloque de labels completo como clave del grupo
+ const key = JSON.stringify({
+ jobname: labels.jobname || '',
+ project: labels.PROJECT || '',
+ environment: labels.ENVIRONMENT || '',
+ datacenter: labels.DATACENTER || '',
+ os: labels.OS || '',
+ exporter: labels.EXPORTER || '',
+ instance: labels.instance || '',
+ module: labels.module || '',
+ port: labels.PORT || '',
+ });
+ 
+ if (!groupMap.has(key)) {
+ groupMap.set(key, {
+ source_file: sourceFile,
+ jobname: labels.jobname || '',
+ project: labels.PROJECT || '',
+ environment: labels.ENVIRONMENT || '',
+ datacenter: labels.DATACENTER || '',
+ os: labels.OS || '',
+ exporter: labels.EXPORTER || '',
+ instance: labels.instance || null,
+ module: labels.module || null,
+ port_label: labels.PORT || null,
+ alerting: (labels.ALERTING || 'true').toLowerCase() !== 'false',
+ targets: [],
+ });
+ }
+ groupMap.get(key).targets.push(addr);
+ });
+ 
+ const groups = [...groupMap.values()];
+ let created = 0, errors = 0;
+ 
+ for (const group of groups) {
+ try {
+ // Buscar si el grupo ya existe (mismo jobname+environment+exporter en ese fichero)
+ const existing = allGroups.find(g =>
+ g.source_file === sourceFile &&
+ g.jobname === group.jobname &&
+ g.environment === group.environment &&
+ g.exporter === group.exporter
+ );
+ 
+ if (existing) {
+ await apiFetch('/api/groups/' + existing.id + '/targets', 'POST',
+ { targets: group.targets });
+ } else {
+ await apiFetch('/api/groups', 'POST', group);
+ }
+ created++;
+ } catch(e) {
+ errors++;
+ console.error('JSON import error:', e.message);
+ }
+ }
+ 
+ btn.disabled = false;
+ // Asignar proyecto si se seleccionó uno
+ const jsonProject = document.getElementById('json-import-project').value;
+ if (jsonProject && sourceFile) await assignFileProject(sourceFile, jsonProject);
+ closeImportJsonModal();
+ await loadGroups();
+ 
+ if (errors === 0) {
+ toast('ok', `${jsonImportNew.length} target(s) importados en ${created} grupo(s)`);
+ } else {
+ toast('err', `Importados con ${errors} error(s) — revisa la consola`);
+ }
+}
+ 
+// ── Keyboard shortcuts ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+ if (e.key === 'Escape') { closeModal(); closeConfirm(); closeAddTargetModal(); closeImportModal(); closeImportJsonModal(); }
+});
+</script>
+</body>
+</html>
