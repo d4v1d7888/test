@@ -1,0 +1,219 @@
+"""
+json_manager.py
+---------------
+Gestión de los ficheros JSON de file_sd_config de Prometheus.
+
+Responsabilidades:
+  - Leer el estado actual de un fichero JSON
+  - Regenerar un fichero JSON completo a partir de los datos de MariaDB
+  - Escritura atómica (escribe en .tmp y luego rename) para evitar que
+    Prometheus lea un fichero a medias
+  - Push automático a git tras cada modificación (si GIT_ENABLED=true)
+
+Prometheus detecta los cambios en los ficheros JSON automáticamente
+si file_sd_config tiene configurado refresh_interval (por defecto 5m).
+"""
+
+import json
+import os
+import subprocess
+import tempfile
+import logging
+from pathlib import Path
+
+import config
+import db
+
+logger = logging.getLogger(__name__)
+
+
+def _json_path(source_file: str) -> Path:
+    """Devuelve la ruta absoluta del fichero JSON."""
+    return Path(config.TARGETS_DIR) / source_file
+
+
+def _git_push(source_file: str, user_ip: str = None):
+    """
+    Hace git add, commit y push del fichero modificado.
+    Si falla, loguea el error pero NO lanza excepción para no
+    interrumpir la operación principal (el JSON ya está escrito).
+    """
+    if not config.GIT_ENABLED:
+        return
+
+    repo = Path(config.GIT_REPO_DIR)
+    file_path = _json_path(source_file)
+
+    # Ruta relativa del fichero dentro del repo (para git add)
+    try:
+        rel_path = file_path.relative_to(repo)
+    except ValueError:
+        logger.error("Git: el fichero %s no está dentro del repo %s", file_path, repo)
+        return
+
+    env = os.environ.copy()
+    env["GIT_AUTHOR_NAME"]     = config.GIT_USER_NAME
+    env["GIT_AUTHOR_EMAIL"]    = config.GIT_USER_EMAIL
+    env["GIT_COMMITTER_NAME"]  = config.GIT_USER_NAME
+    env["GIT_COMMITTER_EMAIL"] = config.GIT_USER_EMAIL
+
+    commit_msg = f"[prometheus-target-manager] Update {source_file}"
+    if user_ip:
+        commit_msg += f" (from {user_ip})"
+
+    commands = [
+        # Asegurar que el remote tiene la URL con el token actualizado
+        ["git", "-C", str(repo), "remote", "set-url", "origin", config.GIT_REMOTE_URL],
+        # Añadir solo el fichero modificado
+        ["git", "-C", str(repo), "add", str(rel_path)],
+        # Commit (--allow-empty-message por si no hay cambios reales)
+        ["git", "-C", str(repo), "commit", "-m", commit_msg],
+        # Push a la rama configurada
+        ["git", "-C", str(repo), "push", "origin", config.GIT_BRANCH],
+    ]
+
+    for cmd in commands:
+        try:
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                # "nothing to commit" no es un error real
+                if "nothing to commit" in result.stdout + result.stderr:
+                    logger.info("Git: sin cambios en %s, push omitido", source_file)
+                    return
+                logger.error("Git error en %s: %s", " ".join(cmd), result.stderr.strip())
+                return
+            logger.info("Git: %s → OK", " ".join(cmd[3:]))
+        except subprocess.TimeoutExpired:
+            logger.error("Git: timeout ejecutando %s", " ".join(cmd))
+            return
+        except Exception as e:
+            logger.error("Git: excepción en %s: %s", " ".join(cmd), e)
+            return
+
+    logger.info("Git push completado para %s", source_file)
+
+
+def read_json(source_file: str) -> list:
+    """Lee y devuelve el contenido de un fichero JSON de targets."""
+    path = _json_path(source_file)
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el fichero: {path}")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def regenerate(source_file: str, user_ip: str = None) -> Path:
+    """
+    Reconstruye el fichero JSON de Prometheus a partir de MariaDB.
+    Tras escribir el fichero, hace push a git si GIT_ENABLED=true.
+    """
+    groups = db.get_groups_by_file(source_file)
+
+    entries = []
+    for g in groups:
+        if not g:
+            continue
+
+        # Solo los targets habilitados
+        enabled_targets = [t["address"] for t in g.get("targets", []) if t["enabled"]]
+        if not enabled_targets:
+            continue
+
+        labels = {
+            "jobname":     g["jobname"],
+            "PROJECT":     g["project"],
+            "ENVIRONMENT": g["environment"],
+            "DATACENTER":  g["datacenter"],
+            "OS":          g["os"],
+            "EXPORTER":    g["exporter"],
+            "ALERTING":    "true" if g["alerting"] else "false",
+        }
+
+        # Labels opcionales (solo si tienen valor)
+        if g.get("instance"):
+            labels["instance"] = g["instance"]
+        if g.get("module"):
+            labels["module"] = g["module"]
+        if g.get("port_label"):
+            labels["PORT"] = g["port_label"]
+
+        entries.append({"targets": enabled_targets, "labels": labels})
+
+    # Escritura atómica
+    target_path = _json_path(source_file)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=target_path.parent,
+        prefix=f".{source_file}.tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, target_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    logger.info("Regenerado %s (%d grupos, %d targets)",
+                source_file, len(entries),
+                sum(len(e["targets"]) for e in entries))
+
+    # Registrar en el log de auditoría
+    db.log_sync_export(source_file, user_ip)
+
+    # Push a git (no bloquea si falla)
+    _git_push(source_file, user_ip)
+
+    return target_path
+
+
+def list_json_files() -> list:
+    """
+    Devuelve los ficheros *.json que existen en TARGETS_DIR.
+    Útil para detectar ficheros que aún no han sido importados.
+    """
+    d = Path(config.TARGETS_DIR)
+    if not d.is_dir():
+        return []
+    return sorted(p.name for p in d.glob("*.json") if not p.name.startswith("."))
+
+
+def validate_json(source_file: str) -> dict:
+    """
+    Valida que el JSON en disco sea parseable y tenga la estructura
+    esperada por Prometheus. Devuelve un dict con el resultado.
+    """
+    try:
+        data = read_json(source_file)
+    except FileNotFoundError:
+        return {"valid": False, "error": "Fichero no encontrado"}
+    except json.JSONDecodeError as e:
+        return {"valid": False, "error": f"JSON inválido: {e}"}
+
+    errors = []
+    for i, entry in enumerate(data):
+        if "targets" not in entry:
+            errors.append(f"Entry {i}: falta el campo 'targets'")
+        elif not isinstance(entry["targets"], list):
+            errors.append(f"Entry {i}: 'targets' no es una lista")
+        if "labels" not in entry:
+            errors.append(f"Entry {i}: falta el campo 'labels'")
+
+    if errors:
+        return {"valid": False, "errors": errors}
+
+    return {
+        "valid": True,
+        "groups": len(data),
+        "targets": sum(len(e.get("targets", [])) for e in data),
+    }
